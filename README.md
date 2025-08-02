@@ -13,8 +13,8 @@ A modern todo list application with integrated CI/CD pipeline demonstrating full
 ## Project Structure
 
 ```
-├── backend/          # Express.js API server
 ├── frontend/         # React application
+├── backend/          # Express.js API server
 ├── .github/workflows/ # CI/CD pipeline configuration
 ├── docker/           # Docker configuration
 └── docs/            # Documentation
