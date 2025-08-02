@@ -1,5 +1,4 @@
 import sqlite3 from "sqlite3";
-import { promisify } from "util";
 import path from "path";
 import { Todo } from "../models/Todo";
 
@@ -26,66 +25,95 @@ class Database {
   private async createTables(): Promise<void> {
     if (!this.db) throw new Error("Database not initialized");
 
-    const run = promisify(this.db.run.bind(this.db));
-
-    await run(`
-      CREATE TABLE IF NOT EXISTS todos (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        description TEXT,
-        completed INTEGER NOT NULL DEFAULT 0,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    return new Promise((resolve, reject) => {
+      this.db!.run(
+        `
+        CREATE TABLE IF NOT EXISTS todos (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT,
+          completed INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `,
+        (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        }
+      );
+    });
   }
 
   async getAllTodos(): Promise<Todo[]> {
     if (!this.db) throw new Error("Database not initialized");
 
-    const all = promisify(this.db.all.bind(this.db));
-
-    const rows = (await all(
-      "SELECT * FROM todos ORDER BY created_at DESC"
-    )) as any[];
-
-    return rows.map(this.rowToTodo);
+    return new Promise((resolve, reject) => {
+      this.db!.all(
+        "SELECT * FROM todos ORDER BY created_at DESC",
+        (err, rows) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(rows.map(this.rowToTodo));
+        }
+      );
+    });
   }
 
   async getTodoById(id: string): Promise<Todo | null> {
     if (!this.db) throw new Error("Database not initialized");
 
-    const get = promisify(this.db.get.bind(this.db));
-
-    const row = (await get("SELECT * FROM todos WHERE id = ?", [id])) as any;
-
-    return row ? this.rowToTodo(row) : null;
+    return new Promise((resolve, reject) => {
+      this.db!.get("SELECT * FROM todos WHERE id = ?", [id], (err, row) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(row ? this.rowToTodo(row) : null);
+      });
+    });
   }
 
   async createTodo(todo: Omit<Todo, "createdAt" | "updatedAt">): Promise<Todo> {
     if (!this.db) throw new Error("Database not initialized");
 
-    const run = promisify(this.db.run.bind(this.db));
     const now = new Date();
 
-    await run(
-      "INSERT INTO todos (id, title, description, completed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-      [
-        todo.id,
-        todo.title,
-        todo.description || null,
-        todo.completed ? 1 : 0,
-        now.toISOString(),
-        now.toISOString(),
-      ]
-    );
-
-    const createdTodo = await this.getTodoById(todo.id);
-    if (!createdTodo) {
-      throw new Error("Failed to create todo");
-    }
-
-    return createdTodo;
+    return new Promise((resolve, reject) => {
+      this.db!.run(
+        "INSERT INTO todos (id, title, description, completed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        [
+          todo.id,
+          todo.title,
+          todo.description || null,
+          todo.completed ? 1 : 0,
+          now.toISOString(),
+          now.toISOString(),
+        ],
+        (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          // Get the created todo
+          database
+            .getTodoById(todo.id)
+            .then((createdTodo) => {
+              if (!createdTodo) {
+                reject(new Error("Failed to create todo"));
+                return;
+              }
+              resolve(createdTodo);
+            })
+            .catch(reject);
+        }
+      );
+    });
   }
 
   async updateTodo(
@@ -94,7 +122,6 @@ class Database {
   ): Promise<Todo | null> {
     if (!this.db) throw new Error("Database not initialized");
 
-    const run = promisify(this.db.run.bind(this.db));
     const now = new Date();
 
     const setParts: string[] = [];
@@ -119,26 +146,39 @@ class Database {
     values.push(now.toISOString());
     values.push(id);
 
-    const result = await run(
-      `UPDATE todos SET ${setParts.join(", ")} WHERE id = ?`,
-      values
-    );
-
-    if (result.changes === 0) {
-      return null;
-    }
-
-    return this.getTodoById(id);
+    return new Promise((resolve, reject) => {
+      this.db!.run(
+        `UPDATE todos SET ${setParts.join(", ")} WHERE id = ?`,
+        values,
+        function (err) {
+          if (err) {
+            reject(err);
+            return;
+          }
+          if (this.changes === 0) {
+            resolve(null);
+          } else {
+            // Get the updated todo
+            database.getTodoById(id).then(resolve).catch(reject);
+          }
+        }
+      );
+    });
   }
 
   async deleteTodo(id: string): Promise<boolean> {
     if (!this.db) throw new Error("Database not initialized");
 
-    const run = promisify(this.db.run.bind(this.db));
-
-    const result = await run("DELETE FROM todos WHERE id = ?", [id]);
-
-    return result.changes > 0;
+    return new Promise((resolve, reject) => {
+      this.db!.run("DELETE FROM todos WHERE id = ?", [id], function (err) {
+        if (err) {
+          reject(err);
+          return;
+        }
+        // 'this' context contains the changes property
+        resolve(this.changes > 0);
+      });
+    });
   }
 
   private rowToTodo(row: any): Todo {
